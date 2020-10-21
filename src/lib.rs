@@ -93,6 +93,16 @@ where
     }
 }
 
+pub fn j<'a, P, T>(p: P) -> impl Fn(&'a str) -> ParseResult<&str>
+where
+    P: Fn(&'a str) -> ParseResult<T>
+{
+    move |i| match p(i) {
+        Ok((i2, _)) => Ok((i2, &i[..(i2.as_ptr() as usize - i.as_ptr() as usize)])),
+        Err(b) => Err(b)
+    }
+}
+
 pub fn w<'a, F, T>(f: F) -> impl Fn(&'a str) -> ParseResult<T>
 where
     F: Fn(&'a str) -> ParseResult<T>,
@@ -141,6 +151,12 @@ fn test_combinators() {
     let parser = take(|c| c == 'a');
     assert_eq!(parser("aaaa"), Ok(("", "aaaa")));
     assert_eq!(parser("baaa"), Ok(("baaa", "")));
+
+    let parser = j(b(t("a"), n(t("b"))));
+    assert_eq!(parser("abbb"), Ok(("", "abbb")));
+    assert_eq!(parser("ab"), Ok(("", "ab")));
+    assert_eq!(parser("a"), Ok(("", "a")));
+    assert_eq!(parser("baa"), Err(("baa", ParserError::Expected("a"))));
 
     let parser = w(t("a"));
     assert_eq!(parser("   a"), Ok(("", "a")));
