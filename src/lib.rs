@@ -1,3 +1,5 @@
+pub mod unify;
+
 pub type ParseResult<'a, T> = Result<(&'a str, T), (&'a str, ParserError<'a>)>;
 
 #[derive(Debug, PartialEq)]
@@ -89,17 +91,17 @@ where
 {
     move |i| match i.find(|c| !p(c)) {
         Some(x) => Ok((&i[x..], &i[..x])),
-        None => Ok((&i[i.len()..], i))
+        None => Ok((&i[i.len()..], i)),
     }
 }
 
 pub fn j<'a, P, T>(p: P) -> impl Fn(&'a str) -> ParseResult<&str>
 where
-    P: Fn(&'a str) -> ParseResult<T>
+    P: Fn(&'a str) -> ParseResult<T>,
 {
     move |i| match p(i) {
         Ok((i2, _)) => Ok((i2, &i[..(i2.as_ptr() as usize - i.as_ptr() as usize)])),
-        Err(b) => Err(b)
+        Err(b) => Err(b),
     }
 }
 
