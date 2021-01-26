@@ -5,16 +5,31 @@ pub type ParseResult<'a, T> = Result<(&'a str, T), (&'a str, ParserError<'a>)>;
 #[derive(Debug, PartialEq)]
 pub enum ParserError<'a> {
     Expected(&'a str),
+    Take
 }
 
-pub fn t<'a>(token: &'a str) -> impl Fn(&'a str) -> ParseResult<&'a str> {
+// Parsers
+
+fn assignment<'a>() -> impl Fn(&'a str) -> ParseResult<(&'a str, &'a str)> {
+    outer(w(identifier()), w(token("=")), w(identifier()))
+}
+
+fn identifier<'a>() -> impl Fn(&'a str) -> ParseResult<&'a str> {
+    let head = taken(|c| c.is_alphabetic());
+    let tail = taken(|c| c.is_alphanumeric() || c == '_');
+    join(pair(head, opt(tail)))
+}
+
+// Combinators
+
+fn token<'a>(token: &'a str) -> impl Fn(&'a str) -> ParseResult<&'a str> {
     move |i| match i.starts_with(token) {
         true => Ok((&i[token.len()..], &i[..token.len()])),
         false => Err((i, ParserError::Expected(&token))),
     }
 }
 
-pub fn l<'a, A, B, X, Y>(a: A, b: B) -> impl Fn(&'a str) -> ParseResult<X>
+fn left<'a, A, B, X, Y>(a: A, b: B) -> impl Fn(&'a str) -> ParseResult<X>
 where
     A: Fn(&'a str) -> ParseResult<X>,
     B: Fn(&'a str) -> ParseResult<Y>,
@@ -22,7 +37,7 @@ where
     move |i| a(i).and_then(|(i, r1)| b(i).map(|(i, _)| (i, r1)))
 }
 
-pub fn r<'a, A, B, X, Y>(a: A, b: B) -> impl Fn(&'a str) -> ParseResult<Y>
+fn right<'a, A, B, X, Y>(a: A, b: B) -> impl Fn(&'a str) -> ParseResult<Y>
 where
     A: Fn(&'a str) -> ParseResult<X>,
     B: Fn(&'a str) -> ParseResult<Y>,
@@ -30,7 +45,7 @@ where
     move |i| a(i).and_then(|(i, _)| b(i).map(|(i, r2)| (i, r2)))
 }
 
-pub fn m<'a, A, B, C, X, Y, Z>(a: A, b: B, c: C) -> impl Fn(&'a str) -> ParseResult<Y>
+fn middle<'a, A, B, C, X, Y, Z>(a: A, b: B, c: C) -> impl Fn(&'a str) -> ParseResult<Y>
 where
     A: Fn(&'a str) -> ParseResult<X>,
     B: Fn(&'a str) -> ParseResult<Y>,
@@ -39,7 +54,7 @@ where
     move |i| a(i).and_then(|(i, _)| b(i).and_then(|(i, r2)| c(i).map(|(i, _)| (i, r2))))
 }
 
-pub fn o<'a, A, B, C, X, Y, Z>(a: A, b: B, c: C) -> impl Fn(&'a str) -> ParseResult<(X, Z)>
+fn outer<'a, A, B, C, X, Y, Z>(a: A, b: B, c: C) -> impl Fn(&'a str) -> ParseResult<(X, Z)>
 where
     A: Fn(&'a str) -> ParseResult<X>,
     B: Fn(&'a str) -> ParseResult<Y>,
@@ -48,7 +63,7 @@ where
     move |i| a(i).and_then(|(i, x)| b(i).and_then(|(i, _)| c(i).map(|(i, z)| (i, (x, z)))))
 }
 
-pub fn b<'a, A, B, X, Y>(a: A, b: B) -> impl Fn(&'a str) -> ParseResult<(X, Y)>
+fn pair<'a, A, B, X, Y>(a: A, b: B) -> impl Fn(&'a str) -> ParseResult<(X, Y)>
 where
     A: Fn(&'a str) -> ParseResult<X>,
     B: Fn(&'a str) -> ParseResult<Y>,
@@ -56,14 +71,14 @@ where
     move |i| a(i).and_then(|(i, r1)| b(i).map(|(i, r2)| (i, (r1, r2))))
 }
 
-pub fn opt<'a, P, R>(p: P) -> impl Fn(&'a str) -> ParseResult<Option<R>>
+fn opt<'a, P, R>(p: P) -> impl Fn(&'a str) -> ParseResult<Option<R>>
 where
     P: Fn(&'a str) -> ParseResult<R>,
 {
     move |i| p(i).map(|(i, r)| (i, Some(r))).or(Ok((i, None)))
 }
 
-pub fn map<'a, P, F, A, B>(p: P, f: F) -> impl Fn(&'a str) -> ParseResult<B>
+fn map<'a, P, F, A, B>(p: P, f: F) -> impl Fn(&'a str) -> ParseResult<B>
 where
     P: Fn(&'a str) -> ParseResult<A>,
     F: Fn(A) -> B,
@@ -71,7 +86,7 @@ where
     move |i| p(i).map(|(i, r)| (i, f(r)))
 }
 
-pub fn n<'a, P, R>(p: P) -> impl Fn(&'a str) -> ParseResult<Vec<R>>
+fn many<'a, P, R>(p: P) -> impl Fn(&'a str) -> ParseResult<Vec<R>>
 where
     P: Fn(&'a str) -> ParseResult<R>,
 {
@@ -85,7 +100,7 @@ where
     }
 }
 
-pub fn take<'a, P>(p: P) -> impl Fn(&'a str) -> ParseResult<&str>
+fn take<'a, P>(p: P) -> impl Fn(&'a str) -> ParseResult<&str>
 where
     P: Copy + Fn(char) -> bool,
 {
@@ -95,7 +110,18 @@ where
     }
 }
 
-pub fn j<'a, P, T>(p: P) -> impl Fn(&'a str) -> ParseResult<&str>
+fn taken<'a, P>(p: P) -> impl Fn(&'a str) -> ParseResult<&str>
+where
+    P: Copy + Fn(char) -> bool,
+{
+    move |i| match i.find(|c| !p(c)) {
+        Some(0) => Err((i, ParserError::Take)),
+        Some(x) => Ok((&i[x..], &i[..x])),
+        None => Ok((&i[i.len()..], i)),
+    }
+}
+
+fn join<'a, P, T>(p: P) -> impl Fn(&'a str) -> ParseResult<&str>
 where
     P: Fn(&'a str) -> ParseResult<T>,
 {
@@ -105,48 +131,61 @@ where
     }
 }
 
-pub fn w<'a, F, T>(f: F) -> impl Fn(&'a str) -> ParseResult<T>
+fn w<'a, F, T>(f: F) -> impl Fn(&'a str) -> ParseResult<T>
 where
     F: Fn(&'a str) -> ParseResult<T>,
 {
-    r(take(|c: char| c.is_whitespace()), f)
+    right(take(|c: char| c.is_whitespace()), f)
+}
+
+#[test]
+fn test_parser() {
+    let parser = identifier();
+    assert_eq!(parser("abc_123*"), Ok(("*", "abc_123")));
+    assert_eq!(parser("a("), Ok(("(", "a")));
+    assert_eq!(parser("2abc123"), Err(("2abc123", ParserError::Take)));
+    assert_eq!(parser("*bcda"), Err(("*bcda", ParserError::Take)));
+
+    let parser = assignment();
+    assert_eq!(parser(" x = y "), Ok((" ", ("x", "y"))));
+    assert_eq!(parser("a=c"), Ok(("", ("a", "c"))));
 }
 
 #[test]
 fn test_combinators() {
-    let parser = t("a");
+    let parser = token("a");
     assert_eq!(parser("ab"), Ok(("b", "a")));
     assert_eq!(parser("bb"), Err(("bb", ParserError::Expected("a"))));
 
-    let parser = l(t("a"), t("b"));
+    let parser = left(token("a"), token("b"));
     assert_eq!(parser("ab"), Ok(("", "a")));
     assert_eq!(parser("bb"), Err(("bb", ParserError::Expected("a"))));
 
-    let parser = r(t("a"), t("b"));
+    let parser = right(token("a"), token("b"));
     assert_eq!(parser("ab"), Ok(("", "b")));
     assert_eq!(parser("aa"), Err(("a", ParserError::Expected("b"))));
 
-    let parser = m(t("a"), t("b"), t("c"));
+    let parser = middle(token("a"), token("b"), token("c"));
     assert_eq!(parser("abc"), Ok(("", "b")));
     assert_eq!(parser("b"), Err(("b", ParserError::Expected("a"))));
 
-    let parser = o(t("a"), t("b"), t("c"));
+    let parser = outer(token("a"), token("b"), token("c"));
     assert_eq!(parser("abc"), Ok(("", ("a", "c"))));
     assert_eq!(parser("bca"), Err(("bca", ParserError::Expected("a"))));
 
-    let parser = b(t("a"), t("b"));
+    let parser = pair(token("a"), token("b"));
     assert_eq!(parser("ab"), Ok(("", ("a", "b"))));
     assert_eq!(parser("aa"), Err(("a", ParserError::Expected("b"))));
 
-    let parser = opt(t("ab"));
+    let parser = opt(token("ab"));
     assert_eq!(parser("ab"), Ok(("", Some("ab"))));
     assert_eq!(parser("ba"), Ok(("ba", None)));
 
-    let parser = map(t("1"), |s| s.parse::<i32>().unwrap());
+    let parser = map(token("1"), |s| s.parse::<i32>().unwrap());
     assert_eq!(parser("1"), Ok(("", 1)));
     assert_eq!(parser("2"), Err(("2", ParserError::Expected("1"))));
 
-    let parser = n(t("a"));
+    let parser = many(token("a"));
     assert_eq!(parser("aaaa"), Ok(("", vec!["a", "a", "a", "a"])));
     assert_eq!(parser("baaa"), Ok(("baaa", vec![])));
 
@@ -154,13 +193,17 @@ fn test_combinators() {
     assert_eq!(parser("aaaa"), Ok(("", "aaaa")));
     assert_eq!(parser("baaa"), Ok(("baaa", "")));
 
-    let parser = j(b(t("a"), n(t("b"))));
+    let parser = taken(|c| c == 'a');
+    assert_eq!(parser("aaaa"), Ok(("", "aaaa")));
+    assert_eq!(parser("baaa"), Err(("baaa", ParserError::Take)));
+
+    let parser = join(pair(token("a"), many(token("b"))));
     assert_eq!(parser("abbb"), Ok(("", "abbb")));
     assert_eq!(parser("ab"), Ok(("", "ab")));
     assert_eq!(parser("a"), Ok(("", "a")));
     assert_eq!(parser("baa"), Err(("baa", ParserError::Expected("a"))));
 
-    let parser = w(t("a"));
+    let parser = w(token("a"));
     assert_eq!(parser("   a"), Ok(("", "a")));
     assert_eq!(parser("a   "), Ok(("   ", "a")));
 }
