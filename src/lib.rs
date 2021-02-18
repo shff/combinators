@@ -1,26 +1,52 @@
-pub mod unify;
+#[derive(Debug, PartialEq)]
+pub enum Token<'a> {
+    Id(&'a str),
+    Num(&'a str),
+}
+
+// Parsers
+
+fn assignment<'a>(i: &'a str) -> ParseResult<(Token<'a>, Token<'a>)> {
+    outer(w(identifier), w(token("=")), w(expression))(i)
+}
+
+fn expression<'a>(i: &'a str) -> ParseResult<Token<'a>> {
+    any(identifier, number)(i)
+}
+
+// Programming Primitives
+
+fn identifier<'a>(i: &'a str) -> ParseResult<Token<'a>> {
+    map(join(pair(alphabetic, opt(alphanumeric))), Token::Id)(i)
+}
+
+fn number<'a>(i: &'a str) -> ParseResult<Token<'a>> {
+    map(numeric, Token::Num)(i)
+}
+
+// Parsing Primitives
+
+fn alphanumeric<'a>(i: &'a str) -> ParseResult<&'a str> {
+    taken(|c| c.is_alphanumeric() || c == '_')(i)
+}
+
+fn alphabetic<'a>(i: &'a str) -> ParseResult<&'a str> {
+    taken(|c| c.is_alphabetic())(i)
+}
+
+fn numeric<'a>(i: &'a str) -> ParseResult<&'a str> {
+    taken(|c| c.is_numeric() || c == '_')(i)
+}
+
+// Combinators
 
 pub type ParseResult<'a, T> = Result<(&'a str, T), (&'a str, ParserError<'a>)>;
 
 #[derive(Debug, PartialEq)]
 pub enum ParserError<'a> {
     Expected(&'a str),
-    Take
+    Take,
 }
-
-// Parsers
-
-fn assignment<'a>() -> impl Fn(&'a str) -> ParseResult<(&'a str, &'a str)> {
-    outer(w(identifier()), w(token("=")), w(identifier()))
-}
-
-fn identifier<'a>() -> impl Fn(&'a str) -> ParseResult<&'a str> {
-    let head = taken(|c| c.is_alphabetic());
-    let tail = taken(|c| c.is_alphanumeric() || c == '_');
-    join(pair(head, opt(tail)))
-}
-
-// Combinators
 
 fn token<'a>(token: &'a str) -> impl Fn(&'a str) -> ParseResult<&'a str> {
     move |i| match i.starts_with(token) {
@@ -69,6 +95,14 @@ where
     B: Fn(&'a str) -> ParseResult<Y>,
 {
     move |i| a(i).and_then(|(i, r1)| b(i).map(|(i, r2)| (i, (r1, r2))))
+}
+
+fn any<'a, A, B, X>(a: A, b: B) -> impl Fn(&'a str) -> ParseResult<X>
+where
+    A: Fn(&'a str) -> ParseResult<X>,
+    B: Fn(&'a str) -> ParseResult<X>,
+{
+    move |i| a(i).or(b(i))
 }
 
 fn opt<'a, P, R>(p: P) -> impl Fn(&'a str) -> ParseResult<Option<R>>
@@ -140,15 +174,21 @@ where
 
 #[test]
 fn test_parser() {
-    let parser = identifier();
-    assert_eq!(parser("abc_123*"), Ok(("*", "abc_123")));
-    assert_eq!(parser("a("), Ok(("(", "a")));
+    let parser = identifier;
+    assert_eq!(parser("abc_123*"), Ok(("*", Token::Id("abc_123"))));
+    assert_eq!(parser("a("), Ok(("(", Token::Id("a"))));
     assert_eq!(parser("2abc123"), Err(("2abc123", ParserError::Take)));
     assert_eq!(parser("*bcda"), Err(("*bcda", ParserError::Take)));
 
-    let parser = assignment();
-    assert_eq!(parser(" x = y "), Ok((" ", ("x", "y"))));
-    assert_eq!(parser("a=c"), Ok(("", ("a", "c"))));
+    let parser = number;
+    assert_eq!(parser("123 x"), Ok((" x", Token::Num("123"))));
+    assert_eq!(parser("x 123 x"), Err(("x 123 x", ParserError::Take)));
+
+    let parser = assignment;
+    assert_eq!(parser("x = y"), Ok(("", (Token::Id("x"), Token::Id("y")))));
+    assert_eq!(parser("a=c"), Ok(("", (Token::Id("a"), Token::Id("c")))));
+    assert_eq!(parser("a=22"), Ok(("", (Token::Id("a"), Token::Num("22")))));
+    assert_eq!(parser("22=a"), Err(("22=a", ParserError::Take)));
 }
 
 #[test]
@@ -176,6 +216,11 @@ fn test_combinators() {
     let parser = pair(token("a"), token("b"));
     assert_eq!(parser("ab"), Ok(("", ("a", "b"))));
     assert_eq!(parser("aa"), Err(("a", ParserError::Expected("b"))));
+
+    let parser = any(token("aa"), token("bb"));
+    assert_eq!(parser("aabb"), Ok(("bb", "aa")));
+    assert_eq!(parser("bbaa"), Ok(("aa", "bb")));
+    assert_eq!(parser("ccbb"), Err(("ccbb", ParserError::Expected("bb"))));
 
     let parser = opt(token("ab"));
     assert_eq!(parser("ab"), Ok(("", Some("ab"))));
