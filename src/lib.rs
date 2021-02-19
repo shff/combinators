@@ -1,17 +1,28 @@
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token<'a> {
     Id(&'a str),
+    Op(&'a str),
     Num(&'a str),
+    Sum((Box<Token<'a>>, Box<Token<'a>>)),
+    BinOp((&'a str, Box<Token<'a>>, Box<Token<'a>>)),
 }
 
 // Parsers
 
-fn assignment<'a>(i: &'a str) -> ParseResult<(Token<'a>, Token<'a>)> {
+pub fn assignment<'a>(i: &'a str) -> ParseResult<(Token<'a>, Token<'a>)> {
     outer(w(identifier), w(token("=")), w(expression))(i)
 }
 
 fn expression<'a>(i: &'a str) -> ParseResult<Token<'a>> {
-    any(identifier, number)(i)
+    sum(i)
+}
+
+fn sum<'a>(i: &'a str) -> ParseResult<Token<'a>> {
+    infix(w(primitive), w(token("+")), Token::BinOp)(i)
+}
+
+fn primitive<'a>(i: &'a str) -> ParseResult<Token<'a>> {
+    any(parens, any(number, identifier))(i)
 }
 
 // Programming Primitives
@@ -22,6 +33,10 @@ fn identifier<'a>(i: &'a str) -> ParseResult<Token<'a>> {
 
 fn number<'a>(i: &'a str) -> ParseResult<Token<'a>> {
     map(numeric, Token::Num)(i)
+}
+
+fn parens<'a>(i: &'a str) -> ParseResult<Token<'a>> {
+    middle(w(token("(")), expression, w(token(")")))(i)
 }
 
 // Parsing Primitives
@@ -165,6 +180,30 @@ where
     }
 }
 
+fn infix<'a, A, B, C, T, O>(a: A, b: B, c: C) -> impl Fn(&'a str) -> ParseResult<T>
+where
+    A: Fn(&'a str) -> ParseResult<T>,
+    B: Fn(&'a str) -> ParseResult<O>,
+    C: Fn((O, Box<T>, Box<T>)) -> T,
+{
+    move |i| {
+        a(i).map(|(mut i, mut curr)| {
+            while let Ok((next_input, (op, next))) = pair(&b, &a)(i) {
+                i = next_input;
+                curr = c((op, Box::new(curr), Box::new(next)))
+            }
+            (i, curr)
+        })
+    }
+}
+
+pub fn b<'a, F, T>(f: F) -> impl Fn(&'a str) -> ParseResult<Box<T>>
+where
+    F: Fn(&'a str) -> ParseResult<T>,
+{
+    map(f, Box::new)
+}
+
 fn w<'a, F, T>(f: F) -> impl Fn(&'a str) -> ParseResult<T>
 where
     F: Fn(&'a str) -> ParseResult<T>,
@@ -174,6 +213,13 @@ where
 
 #[test]
 fn test_parser() {
+    let parser = expression;
+    assert_eq!(parser("123 x"), Ok((" x", Token::Num("123"))));
+    assert_eq!(parser("a("), Ok(("(", Token::Id("a"))));
+    assert_eq!(parser("(a)"), Ok(("", Token::Id("a"))));
+    let n = Box::new(Token::Num("1"));
+    assert_eq!(parser("(1+1)"), Ok(("", Token::BinOp(("+", n.clone(), n)))));
+
     let parser = identifier;
     assert_eq!(parser("abc_123*"), Ok(("*", Token::Id("abc_123"))));
     assert_eq!(parser("a("), Ok(("(", Token::Id("a"))));
@@ -247,6 +293,17 @@ fn test_combinators() {
     assert_eq!(parser("ab"), Ok(("", "ab")));
     assert_eq!(parser("a"), Ok(("", "a")));
     assert_eq!(parser("baa"), Err(("baa", ParserError::Expected("a"))));
+
+    #[derive(Debug, PartialEq, Clone)]
+    pub enum T<'a> {
+        Str(&'a str),
+        Pair((&'a str, Box<T<'a>>, Box<T<'a>>)),
+    }
+    let a = Box::new(T::Str("a"));
+
+    let parser = infix(map(token("a"), T::Str), token("b"), T::Pair);
+    assert_eq!(parser("ab"), Ok(("b", T::Str("a"))));
+    assert_eq!(parser("abab"), Ok(("b", T::Pair(("b", a.clone(), a)))));
 
     let parser = w(token("a"));
     assert_eq!(parser("   a"), Ok(("", "a")));
