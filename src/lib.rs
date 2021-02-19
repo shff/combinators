@@ -1,20 +1,28 @@
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Token<'a> {
     Id(&'a str),
+    Op(&'a str),
     Num(&'a str),
+    Sum((Box<Token<'a>>, Box<Token<'a>>)),
+    Binary((Box<Token<'a>>, Box<Token<'a>>, Box<Token<'a>>)),
 }
 
 // Parsers
 
-fn assignment<'a>(i: &'a str) -> ParseResult<(Token<'a>, Token<'a>)> {
+pub fn assignment<'a>(i: &'a str) -> ParseResult<(Token<'a>, Token<'a>)> {
     outer(w(identifier), w(token("=")), w(expression))(i)
 }
 
 fn expression<'a>(i: &'a str) -> ParseResult<Token<'a>> {
-    any(identifier, number)(i)
+    sum(i)
 }
 
 // Programming Primitives
+
+fn sum<'a>(i: &'a str) -> ParseResult<Token<'a>> {
+    let inner = any(parens, any(number, identifier));
+    infix(w(inner), w(map(token("+"), Token::Op)), Token::Binary)(i)
+}
 
 fn identifier<'a>(i: &'a str) -> ParseResult<Token<'a>> {
     map(join(pair(alphabetic, opt(alphanumeric))), Token::Id)(i)
@@ -22,6 +30,10 @@ fn identifier<'a>(i: &'a str) -> ParseResult<Token<'a>> {
 
 fn number<'a>(i: &'a str) -> ParseResult<Token<'a>> {
     map(numeric, Token::Num)(i)
+}
+
+fn parens<'a>(i: &'a str) -> ParseResult<Token<'a>> {
+    middle(w(token("(")), expression, w(token(")")))(i)
 }
 
 // Parsing Primitives
@@ -105,6 +117,21 @@ where
     move |i| a(i).or(b(i))
 }
 
+fn infix<'a, A, B, C, T>(a: A, b: B, c: C) -> impl Fn(&'a str) -> ParseResult<T>
+where
+    A: Fn(&'a str) -> ParseResult<T>,
+    B: Fn(&'a str) -> ParseResult<T>,
+    C: Fn((Box<T>, Box<T>, Box<T>)) -> T,
+{
+    move |i| a(i).map(|(mut i, mut curr)| {
+        while let Ok((next_input, (op, next))) = pair(&b, &a)(i) {
+            i = next_input;
+            curr = c((Box::new(op), Box::new(curr), Box::new(next)))
+        }
+        (i, curr)
+    })
+}
+
 fn opt<'a, P, R>(p: P) -> impl Fn(&'a str) -> ParseResult<Option<R>>
 where
     P: Fn(&'a str) -> ParseResult<R>,
@@ -165,6 +192,13 @@ where
     }
 }
 
+fn b<'a, F, T>(f: F) -> impl Fn(&'a str) -> ParseResult<Box<T>>
+where
+    F: Fn(&'a str) -> ParseResult<T>,
+{
+    map(f, Box::new)
+}
+
 fn w<'a, F, T>(f: F) -> impl Fn(&'a str) -> ParseResult<T>
 where
     F: Fn(&'a str) -> ParseResult<T>,
@@ -174,6 +208,12 @@ where
 
 #[test]
 fn test_parser() {
+    let parser = expression;
+    assert_eq!(parser("123 x"), Ok((" x", Token::Num("123"))));
+    assert_eq!(parser("a("), Ok(("(", Token::Id("a"))));
+    assert_eq!(parser("(a)"), Ok(("", Token::Id("a"))));
+    assert_eq!(parser("(1+1)"), Ok(("", Token::Id("a"))));
+
     let parser = identifier;
     assert_eq!(parser("abc_123*"), Ok(("*", Token::Id("abc_123"))));
     assert_eq!(parser("a("), Ok(("(", Token::Id("a"))));
@@ -225,6 +265,16 @@ fn test_combinators() {
     let parser = opt(token("ab"));
     assert_eq!(parser("ab"), Ok(("", Some("ab"))));
     assert_eq!(parser("ba"), Ok(("ba", None)));
+
+    #[derive(Debug, PartialEq, Clone)]
+    pub enum T<'a> {
+        Str(&'a str),
+        Pair((Box<T<'a>>, Box<T<'a>>, Box<T<'a>>)),
+    }
+
+    let parser = infix(map(token("a"), T::Str), map(token("b"), T::Str), T::Pair);
+    assert_eq!(parser("a"), Ok(("", T::Str("a"))));
+    assert_eq!(parser("abab"), Ok(("b", T::Pair((Box::new(T::Str("b")), Box::new(T::Str("a")), Box::new(T::Str("a")))))));
 
     let parser = map(token("1"), |s| s.parse::<i32>().unwrap());
     assert_eq!(parser("1"), Ok(("", 1)));
