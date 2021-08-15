@@ -5,6 +5,7 @@ pub enum Token<'a> {
     Num(&'a str),
     Sum((Box<Token<'a>>, Box<Token<'a>>)),
     BinOp((&'a str, Box<Token<'a>>, Box<Token<'a>>)),
+    Prefix((&'a str, Box<Token<'a>>)),
 }
 
 // Parsers
@@ -29,7 +30,13 @@ fn mul_div<'a>(i: &'a str) -> ParseResult<Token<'a>> {
 }
 
 fn exp<'a>(i: &'a str) -> ParseResult<Token<'a>> {
-    infix(w(primitive), w(token("**")), Token::BinOp)(i)
+    infix(w(unary), w(token("**")), Token::BinOp)(i)
+}
+
+fn unary<'a>(i: &'a str) -> ParseResult<Token<'a>> {
+    let prefix = |x, y, c| map(pair(x, b(w(y))), c);
+    let ops = w(any3(token("+"), token("-"), token("!")));
+    any(prefix(ops, primitive, Token::Prefix), primitive)(i)
 }
 
 fn primitive<'a>(i: &'a str) -> ParseResult<Token<'a>> {
@@ -262,6 +269,9 @@ fn test_parser() {
         parser("( 1 ** 1 )"),
         Ok(("", Token::BinOp(("**", n.clone(), n.clone()))))
     );
+    assert_eq!(parser("( ! 1 )"), Ok(("", Token::Prefix(("!", n.clone())))));
+    assert_eq!(parser("( - 1 )"), Ok(("", Token::Prefix(("-", n.clone())))));
+    assert_eq!(parser("( + 1 )"), Ok(("", Token::Prefix(("+", n.clone())))));
 
     let parser = identifier;
     assert_eq!(parser("abc_123*"), Ok(("*", Token::Id("abc_123"))));
