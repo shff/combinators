@@ -13,12 +13,23 @@ pub fn assignment<'a>(i: &'a str) -> ParseResult<(Token<'a>, Token<'a>)> {
     outer(w(identifier), w(token("=")), w(expression))(i)
 }
 
+// Expressions
+
 fn expression<'a>(i: &'a str) -> ParseResult<Token<'a>> {
-    sum(i)
+    sum_sub(i)
 }
 
-fn sum<'a>(i: &'a str) -> ParseResult<Token<'a>> {
-    infix(w(primitive), w(token("+")), Token::BinOp)(i)
+fn sum_sub<'a>(i: &'a str) -> ParseResult<Token<'a>> {
+    infix(w(mul_div), w(any(token("+"), token("-"))), Token::BinOp)(i)
+}
+
+fn mul_div<'a>(i: &'a str) -> ParseResult<Token<'a>> {
+    let ops = w(any3(token("*"), token("/"), token("%")));
+    infix(w(exp), ops, Token::BinOp)(i)
+}
+
+fn exp<'a>(i: &'a str) -> ParseResult<Token<'a>> {
+    infix(w(primitive), w(token("**")), Token::BinOp)(i)
 }
 
 fn primitive<'a>(i: &'a str) -> ParseResult<Token<'a>> {
@@ -120,6 +131,15 @@ where
     move |i| a(i).or(b(i))
 }
 
+fn any3<'a, A, B, C, X>(a: A, b: B, c: C) -> impl Fn(&'a str) -> ParseResult<X>
+where
+    A: Fn(&'a str) -> ParseResult<X>,
+    B: Fn(&'a str) -> ParseResult<X>,
+    C: Fn(&'a str) -> ParseResult<X>,
+{
+    move |i| a(i).or(b(i)).or(c(i))
+}
+
 fn opt<'a, P, R>(p: P) -> impl Fn(&'a str) -> ParseResult<Option<R>>
 where
     P: Fn(&'a str) -> ParseResult<R>,
@@ -218,7 +238,30 @@ fn test_parser() {
     assert_eq!(parser("a("), Ok(("(", Token::Id("a"))));
     assert_eq!(parser("(a)"), Ok(("", Token::Id("a"))));
     let n = Box::new(Token::Num("1"));
-    assert_eq!(parser("(1+1)"), Ok(("", Token::BinOp(("+", n.clone(), n)))));
+    assert_eq!(
+        parser("( 1 + 1 )"),
+        Ok(("", Token::BinOp(("+", n.clone(), n.clone()))))
+    );
+    assert_eq!(
+        parser("( 1 - 1 )"),
+        Ok(("", Token::BinOp(("-", n.clone(), n.clone()))))
+    );
+    assert_eq!(
+        parser("( 1 * 1 )"),
+        Ok(("", Token::BinOp(("*", n.clone(), n.clone()))))
+    );
+    assert_eq!(
+        parser("( 1 / 1 )"),
+        Ok(("", Token::BinOp(("/", n.clone(), n.clone()))))
+    );
+    assert_eq!(
+        parser("( 1 % 1 )"),
+        Ok(("", Token::BinOp(("%", n.clone(), n.clone()))))
+    );
+    assert_eq!(
+        parser("( 1 ** 1 )"),
+        Ok(("", Token::BinOp(("**", n.clone(), n.clone()))))
+    );
 
     let parser = identifier;
     assert_eq!(parser("abc_123*"), Ok(("*", Token::Id("abc_123"))));
