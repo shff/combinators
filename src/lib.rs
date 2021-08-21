@@ -275,12 +275,12 @@ fn test_parser() {
 
 #[test]
 fn test_printer() {
-    let parser = expression;
-    assert_eq!(print(parser("(1+1)").unwrap().1), "(1 + 1)");
-    assert_eq!(print(parser("(1-1)").unwrap().1), "(1 - 1)");
-    assert_eq!(print(parser("(1*1)").unwrap().1), "(1 * 1)");
-    assert_eq!(print(parser("(1/1)").unwrap().1), "(1 / 1)");
-    assert_eq!(print(parser("(1%1)").unwrap().1), "(1 % 1)");
+    let print = |e| print(expression(e).unwrap().1);
+    assert_eq!(print("(1+1)"), "(1 + 1)");
+    assert_eq!(print("(1-1)"), "(1 - 1)");
+    assert_eq!(print("(1*1)"), "(1 * 1)");
+    assert_eq!(print("(1/1)"), "(1 / 1)");
+    assert_eq!(print("(1%1)"), "(1 % 1)");
 }
 
 #[test]
