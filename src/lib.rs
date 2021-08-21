@@ -46,7 +46,7 @@ fn alphanumeric<'a>(i: &'a str) -> ParseResult<&'a str> {
 }
 
 fn alphabetic<'a>(i: &'a str) -> ParseResult<&'a str> {
-    taken(|c| c.is_alphabetic())(i)
+    taken(|c| c.is_alphabetic() || c == '_')(i)
 }
 
 fn numeric<'a>(i: &'a str) -> ParseResult<&'a str> {
