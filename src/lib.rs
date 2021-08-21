@@ -186,7 +186,8 @@ where
     move |i| match i.find(|c| !p(c)) {
         Some(0) => Err((i, ParserError::Take)),
         Some(x) => Ok((&i[x..], &i[..x])),
-        None => Ok((&i[i.len()..], i)),
+        None if i.len() > 0 => Ok((&i[i.len()..], i)),
+        None => Err((i, ParserError::Take)),
     }
 }
 
@@ -255,11 +256,9 @@ fn test_parser() {
         parser("(1/1)"),
         Ok(("", Token::Bin(("/", n.clone(), n.clone()))))
     );
-
-    let parser = identifier;
     assert_eq!(parser("abc_123*"), Ok(("*", Token::Id("abc_123"))));
     assert_eq!(parser("a("), Ok(("(", Token::Id("a"))));
-    assert_eq!(parser("2abc123"), Err(("2abc123", ParserError::Take)));
+    assert_eq!(parser("2abc123"), Ok(("abc123", Token::Num("2"))));
     assert_eq!(parser("*bcda"), Err(("*bcda", ParserError::Take)));
 
     let parser = number;
