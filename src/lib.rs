@@ -53,6 +53,17 @@ fn numeric<'a>(i: &'a str) -> ParseResult<&'a str> {
     taken(|c| c.is_numeric() || c == '_')(i)
 }
 
+// Pretty-Printer
+
+fn print<'a>(t: Token<'a>) -> String {
+    match t {
+        Token::Id(s) => s.to_string(),
+        Token::Op(s) => s.to_string(),
+        Token::Num(s) => s.to_string(),
+        Token::Bin((a, b, c)) => "(".to_string() + &print(*b) + " " + a + " " + &print(*c) + ")",
+    }
+}
+
 // Combinators
 
 pub type ParseResult<'a, T> = Result<(&'a str, T), (&'a str, ParserError<'a>)>;
@@ -260,6 +271,16 @@ fn test_parser() {
     assert_eq!(parser("a=c"), Ok(("", (Token::Id("a"), Token::Id("c")))));
     assert_eq!(parser("a=22"), Ok(("", (Token::Id("a"), Token::Num("22")))));
     assert_eq!(parser("22=a"), Err(("22=a", ParserError::Take)));
+}
+
+#[test]
+fn test_printer() {
+    let parser = expression;
+    assert_eq!(print(parser("(1+1)").unwrap().1), "(1 + 1)");
+    assert_eq!(print(parser("(1-1)").unwrap().1), "(1 - 1)");
+    assert_eq!(print(parser("(1*1)").unwrap().1), "(1 * 1)");
+    assert_eq!(print(parser("(1/1)").unwrap().1), "(1 / 1)");
+    assert_eq!(print(parser("(1%1)").unwrap().1), "(1 % 1)");
 }
 
 #[test]
