@@ -3,8 +3,7 @@ pub enum Token<'a> {
     Id(&'a str),
     Op(&'a str),
     Num(&'a str),
-    Sum((Box<Token<'a>>, Box<Token<'a>>)),
-    BinOp((&'a str, Box<Token<'a>>, Box<Token<'a>>)),
+    Bin((&'a str, Box<Token<'a>>, Box<Token<'a>>)),
 }
 
 // Parsers
@@ -18,14 +17,17 @@ fn expression<'a>(i: &'a str) -> ParseResult<Token<'a>> {
 }
 
 fn sum<'a>(i: &'a str) -> ParseResult<Token<'a>> {
-    infix(w(primitive), w(token("+")), Token::BinOp)(i)
+    infix(w(mul), w(any(token("+"), token("-"))), Token::Bin)(i)
+}
+
+fn mul<'a>(i: &'a str) -> ParseResult<Token<'a>> {
+    let tok = w(any3(token("*"), token("/"), token("%")));
+    infix(w(primitive), tok, Token::Bin)(i)
 }
 
 fn primitive<'a>(i: &'a str) -> ParseResult<Token<'a>> {
     any(parens, any(number, identifier))(i)
 }
-
-// Programming Primitives
 
 fn identifier<'a>(i: &'a str) -> ParseResult<Token<'a>> {
     map(join(pair(alphabetic, opt(alphanumeric))), Token::Id)(i)
@@ -38,8 +40,6 @@ fn number<'a>(i: &'a str) -> ParseResult<Token<'a>> {
 fn parens<'a>(i: &'a str) -> ParseResult<Token<'a>> {
     middle(w(token("(")), expression, w(token(")")))(i)
 }
-
-// Parsing Primitives
 
 fn alphanumeric<'a>(i: &'a str) -> ParseResult<&'a str> {
     taken(|c| c.is_alphanumeric() || c == '_')(i)
@@ -118,6 +118,15 @@ where
     B: Fn(&'a str) -> ParseResult<X>,
 {
     move |i| a(i).or(b(i))
+}
+
+fn any3<'a, A, B, C, X>(a: A, b: B, c: C) -> impl Fn(&'a str) -> ParseResult<X>
+where
+    A: Fn(&'a str) -> ParseResult<X>,
+    B: Fn(&'a str) -> ParseResult<X>,
+    C: Fn(&'a str) -> ParseResult<X>,
+{
+    move |i| a(i).or(b(i)).or(c(i))
 }
 
 fn opt<'a, P, R>(p: P) -> impl Fn(&'a str) -> ParseResult<Option<R>>
@@ -217,8 +226,24 @@ fn test_parser() {
     assert_eq!(parser("123 x"), Ok((" x", Token::Num("123"))));
     assert_eq!(parser("a("), Ok(("(", Token::Id("a"))));
     assert_eq!(parser("(a)"), Ok(("", Token::Id("a"))));
+
     let n = Box::new(Token::Num("1"));
-    assert_eq!(parser("(1+1)"), Ok(("", Token::BinOp(("+", n.clone(), n)))));
+    assert_eq!(
+        parser("(1+1)"),
+        Ok(("", Token::Bin(("+", n.clone(), n.clone()))))
+    );
+    assert_eq!(
+        parser("(1-1)"),
+        Ok(("", Token::Bin(("-", n.clone(), n.clone()))))
+    );
+    assert_eq!(
+        parser("(1*1)"),
+        Ok(("", Token::Bin(("*", n.clone(), n.clone()))))
+    );
+    assert_eq!(
+        parser("(1/1)"),
+        Ok(("", Token::Bin(("/", n.clone(), n.clone()))))
+    );
 
     let parser = identifier;
     assert_eq!(parser("abc_123*"), Ok(("*", Token::Id("abc_123"))));
